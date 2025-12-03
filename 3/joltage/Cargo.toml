@@ -1,0 +1,8 @@
+[package]
+name = "joltage"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+log = "0.4.29"
+simple_logger = "5.1.0"
