@@ -114,19 +114,31 @@ impl BatteryBank {
         &self.banks[base..(base + self.bank_width as usize)]
     }
 
-    fn bank_max_joltage(&self, bankno: u32) -> u8 {
+    fn bank_max_joltage(&self, bankno: u32, digits: u32) -> u64 {
+        if digits < 1 {
+            panic!("Digits must be > 0!");
+        }
         let joltages = self.bank(bankno);
 
-        let first_pos = argmax(&joltages[..joltages.len() - 1]);
-        let second_pos = argmax(&joltages[first_pos + 1..]) + first_pos + 1;
-        //info!("f {} s {} ", joltages[first_pos], joltages[second_pos]);
-        joltages[first_pos] * 10_u8 + joltages[second_pos]
+        let mut res = 0;
+        let mut last_pos = 0;
+        for d in 0..digits {
+            let digits_rem = digits - 1 - d;
+            let pos = argmax(&joltages[last_pos..joltages.len() - digits_rem as usize]) + last_pos;
+            // info!(
+            //     "digit {} rem {} pos {} val {} res {} ",
+            //     d, digits_rem, pos, joltages[pos], res
+            // );
+            res += 10_u64.pow(digits_rem as u32) * joltages[pos] as u64;
+            last_pos = pos + 1;
+        }
+        res
     }
 
-    fn sum_max_joltages(&self) -> u32 {
-        let mut sum = 0_u32;
+    fn sum_max_joltages(&self, digits: u32) -> u64 {
+        let mut sum = 0;
         for b in 0..self.nbanks {
-            sum += self.bank_max_joltage(b) as u32;
+            sum += self.bank_max_joltage(b, digits) as u64;
         }
         sum
     }
@@ -143,7 +155,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
     let bank = BatteryBank::new(file);
 
-    println!("Max joltage is {}", bank.sum_max_joltages());
+    println!("Max joltage is {}", bank.sum_max_joltages(12));
+
     Ok(())
 }
 
@@ -158,8 +171,8 @@ mod tests {
             nbanks: 2,
             banks: [1, 3, 3, 9, 2, 4, 1, 6].to_vec(),
         };
-        assert_eq!(b.bank_max_joltage(0), 39);
-        assert_eq!(b.bank_max_joltage(1), 46);
+        assert_eq!(b.bank_max_joltage(0, 2), 39);
+        assert_eq!(b.bank_max_joltage(1, 2), 46);
     }
 
     #[test]
