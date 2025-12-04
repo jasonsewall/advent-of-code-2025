@@ -1,5 +1,6 @@
 use log::info;
 use simple_logger::SimpleLogger;
+use std::borrow::Cow;
 use std::env;
 use std::error::Error;
 use std::fs;
@@ -8,12 +9,12 @@ use std::io::{self, BufRead};
 use std::iter::Peekable;
 use std::path::Path;
 
-fn read_lines<P>(filename: P) -> io::Result<Peekable<io::Split<io::BufReader<File>>>>
+fn read_lines<P>(filename: P) -> io::Result<io::Split<io::BufReader<File>>>
 where
     P: AsRef<Path>,
 {
     let file = File::open(filename)?;
-    Ok(io::BufReader::new(file).split(b'\n').peekable())
+    Ok(io::BufReader::new(file).split(b'\n'))
 }
 
 struct FloorMap {
@@ -27,15 +28,15 @@ impl FloorMap {
     where
         P: AsRef<Path>,
     {
-        let line_iter = read_lines(filename)
-            .unwrap()
-            .map(|res| res.unwrap().as_ref());
-        return Self::new_from_lines(line_iter);
+        let mut line_iter = read_lines(filename).unwrap().map(|res| res.unwrap());
+        return Self::new_from_lines(&mut line_iter);
     }
 
-    fn new_from_lines<'a, I>(line_iter: &mut std::iter::Peekable<I>) -> FloorMap
+    fn new_from_lines<I, S, T>(line_iter: T) -> FloorMap
     where
-        I: Iterator<Item = &'a [u8]>,
+        I: Iterator<Item = S>,
+        S: AsRef<[u8]>,
+        T: IntoIterator<IntoIter = I, Item = S>,
     {
         let mut map = Vec::<bool>::new();
         let mut nlines = 0;
@@ -59,16 +60,17 @@ impl FloorMap {
             }
             w
         };
+        let mut line_iter = line_iter.into_iter().peekable();
 
         let first = match line_iter.next() {
             Some(f) => f,
             None => panic!("No lines to read!"),
         };
-        let width = process_line(&first, None);
+        let width = process_line(first.as_ref(), None);
         nlines += 1;
 
         while let Some(line) = line_iter.next() {
-            let w = process_line(&line, Some(width));
+            let w = process_line(line.as_ref(), Some(width));
             if w == 0 && line_iter.peek().is_none() {
                 break;
             }
@@ -111,7 +113,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             return Err(From::from("Need a file argument!"));
         }
     };
-    let map = FloorMap::new(file);
+    let map = FloorMap::new_from_file(file);
 
     Ok(())
 }
@@ -137,6 +139,21 @@ mod tests {
     }
     #[test]
     fn test_new_map_file() {
-        let b = FloorMap::new("test.txt");
+        let b = FloorMap::new_from_file("test.txt");
+    }
+
+    #[test]
+    fn test_new_from_str() {
+        let map = b"..@@.@@@@.
+@@@.@.@.@@
+@@@@@.@.@@
+@.@@@@..@.
+@@.@@@@.@@
+.@@@@@@@.@
+.@.@.@.@@@
+@.@@@.@@@@
+.@@@@@@@@.
+@.@.@@@.@.";
+        let b = FloorMap::new_from_lines(map.split(|&v| v == b'\n'));
     }
 }
