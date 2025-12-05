@@ -18,8 +18,8 @@ where
 }
 
 struct FloorMap {
-    height: u32,
-    width: u32,
+    height: i32,
+    width: i32,
     map: Vec<bool>,
 }
 
@@ -41,7 +41,7 @@ impl FloorMap {
         let mut map = Vec::<bool>::new();
         let mut nlines = 0;
 
-        let mut process_line = |line: &[u8], expected_width: Option<u32>| -> u32 {
+        let mut process_line = |line: &[u8], expected_width: Option<i32>| -> i32 {
             let mut w = 0;
             for c in line {
                 map.push(match *c {
@@ -87,20 +87,100 @@ impl FloorMap {
         }
     }
 
-    fn map_val(&self, x: u32, y: u32) -> bool {
-        if x > self.width {
+    fn map_val(&self, x: i32, y: i32) -> bool {
+        if x < 0 || x >= self.width || y < 0 || y >= self.height {
+            false
+        } else {
+            self.map[y as usize * self.width as usize + x as usize]
+        }
+    }
+
+    fn free_val(&mut self, x: i32, y: i32) {
+        if x < 0 || x >= self.width || y < 0 || y >= self.height {
+            panic!("out of bounds!");
+        } else {
+            self.map[y as usize * self.width as usize + x as usize] = false;
+        }
+    }
+
+    fn count_neighbors(&self, x: i32, y: i32) -> u8 {
+        if x < 0 {
+            panic!("width {} below 0!", x);
+        }
+        if y < 0 {
+            panic!("height {} below 0!", y);
+        }
+        if x >= self.width {
             panic!(
                 "width {} exceeded width of map in FloorMap! {}",
                 x, self.width
             );
         }
-        if y > self.height {
+        if y >= self.height {
             panic!(
                 "height {} exceeded # height of FloorMap! {}",
                 y, self.height
             );
         }
-        self.map[y as usize * self.width as usize + x as usize]
+        let mut sum = 0;
+        for xoff in -1..2 {
+            for yoff in -1..2 {
+                sum += if xoff == 0 && yoff == 0 {
+                    0
+                } else {
+                    // info!(
+                    //     "x {} y {} eval {} {} -> {}",
+                    //     x,
+                    //     y,
+                    //     x + xoff,
+                    //     y + yoff,
+                    //     self.map_val(x + xoff, y + yoff) as u8
+                    // );
+                    self.map_val(x + xoff, y + yoff) as u8
+                };
+            }
+        }
+        //info!("({}, {}) -> {}", x, y, sum);
+        sum
+    }
+
+    fn count_free(&self, free_threshold: u8) -> u32 {
+        let mut sum = 0;
+        for x in 0..self.width {
+            for y in 0..self.height {
+                if self.map_val(x, y) {
+                    sum += (self.count_neighbors(x, y) < free_threshold) as u32;
+                }
+            }
+        }
+        sum
+    }
+
+    fn count_and_mark_free(&mut self, free_threshold: u8) -> u32 {
+        let mut sum = 0;
+        for x in 0..self.width {
+            for y in 0..self.height {
+                if self.map_val(x, y) {
+                    if self.count_neighbors(x, y) < free_threshold {
+                        sum += 1;
+                        self.free_val(x, y);
+                    }
+                }
+            }
+        }
+        sum
+    }
+
+    fn count_and_mark_exhaust(&mut self, free_threshold: u8) -> u32 {
+        let mut sum = 0;
+        loop {
+            let pass_sum = self.count_and_mark_free(free_threshold);
+            if pass_sum == 0 {
+                break;
+            }
+            sum += pass_sum;
+        }
+        sum
     }
 }
 
@@ -113,8 +193,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             return Err(From::from("Need a file argument!"));
         }
     };
-    let map = FloorMap::new_from_file(file);
-
+    let mut map = FloorMap::new_from_file(file);
+    println!("{}", map.count_and_mark_exhaust(4));
     Ok(())
 }
 
@@ -154,6 +234,9 @@ mod tests {
 @.@@@.@@@@
 .@@@@@@@@.
 @.@.@@@.@.";
-        let b = FloorMap::new_from_lines(map.split(|&v| v == b'\n'));
+        let mut b = FloorMap::new_from_lines(map.split(|&v| v == b'\n'));
+        assert_eq!(b.count_neighbors(0, 0), 2);
+        assert_eq!(b.count_free(4), 13);
+        assert_eq!(b.count_and_mark_exhaust(4), 43);
     }
 }
