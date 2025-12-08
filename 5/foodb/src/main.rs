@@ -7,6 +7,7 @@ use std::fs;
 use std::fs::File;
 use std::io::{self, BufRead};
 use std::iter::Peekable;
+use std::mem;
 use std::path::Path;
 
 #[derive(Debug, PartialEq)]
@@ -30,6 +31,9 @@ mod interval {
 
     #[derive(Debug, PartialEq)]
     pub struct InvalidClosedInt;
+
+    #[derive(Debug, PartialEq)]
+    pub struct UnmergableInts;
 
     #[derive(Debug, Eq, PartialEq, Clone)]
     pub struct ClosedInt {
@@ -74,11 +78,29 @@ mod interval {
             ClosedInt::new(low, high)
         }
 
+        pub fn is_before(&self, num: u64) -> bool {
+            num > self.high
+        }
+
+        pub fn is_after(&self, num: u64) -> bool {
+            num < self.low
+        }
+
+        pub fn merge(&self, other: &Self) -> Result<ClosedInt, UnmergableInts> {
+            if self.high < other.low || other.low < self.high {
+                Err(UnmergableInts)
+            } else {
+                Ok(ClosedInt::new(
+                    std::cmp::min(self.low, other.low),
+                    std::cmp::max(self.low, other.high),
+                )
+                .unwrap())
+            }
+        }
+
         pub fn contains(&self, num: u64) -> bool {
             num >= self.low && num <= self.high
         }
-
-
     }
 
     impl Ord for ClosedInt {
@@ -142,26 +164,6 @@ mod interval {
 
 use interval::ClosedInt;
 
-fn bisect_interval(val: u64, intervals: &[ClosedInt]) -> bool {
-    //info!("val: {}, len {}", val, intervals.len());
-    match intervals.len() {
-        0 => false,
-        1 => intervals[0].contains(val),
-        _ => {
-            let mid = intervals.len() / 2;
-            if ClosedInt::new(val, val).unwrap() >= intervals[mid] {
-                if intervals[mid].contains(val) {
-                    true
-                } else {
-                    bisect_interval(val, &intervals[mid..])
-                }
-            } else {
-                bisect_interval(val, &intervals[0..mid])
-            }
-        }
-    }
-}
-
 fn bruteforce_interval(val: u64, intervals: &[ClosedInt]) -> bool {
     for i in intervals {
         if i.contains(val) {
@@ -169,6 +171,31 @@ fn bruteforce_interval(val: u64, intervals: &[ClosedInt]) -> bool {
         }
     }
     false
+}
+
+fn pivot_intervals(intervals: &mut [ClosedInt]) -> &mut [ClosedInt] {
+    if intervals.len() == 1 {
+        return intervals;
+    }
+
+    let mut before = 0;
+    let mut after = intervals.len() - 2;
+
+    let mid = intervals.len() / 2;
+    intervals.swap(mid, intervals.len() - 1);
+
+    while before < after {
+        if intervals[front].is_before(pivot) {
+            continue;
+            front += 1;
+        } else if intervals[front].is_after(pivot) {
+            intervals.swap(front, after);
+            front += 1;
+            after -= 1;
+        } else {
+            front += 1;
+        }
+    }
 }
 
 fn read_lines<P>(filename: P) -> io::Result<io::Split<io::BufReader<File>>>
@@ -286,7 +313,7 @@ mod tests {
         let fdb = FoodbProblem::new_from_lines(lines.split(|&v| v == b'\n'));
         let mut res = 0;
         for c in fdb.to_check {
-            res += bisect_interval(c, &fdb.intervals) as u64;
+            res += bruteforce_interval(c, &fdb.intervals) as u64;
         }
         assert_eq!(res, 3);
     }
