@@ -3,11 +3,8 @@ use simple_logger::SimpleLogger;
 use std::borrow::Cow;
 use std::env;
 use std::error::Error;
-use std::fs;
 use std::fs::File;
 use std::io::{self, BufRead};
-use std::iter::Peekable;
-use std::mem;
 use std::path::Path;
 
 #[derive(Debug, PartialEq)]
@@ -33,7 +30,13 @@ mod interval {
     pub struct InvalidClosedInt;
 
     #[derive(Debug, PartialEq)]
-    pub struct UnmergableInts;
+    pub enum UnmergeOrder {
+        Before,
+        After,
+    }
+
+    #[derive(Debug, PartialEq)]
+    pub struct UnmergableInts(UnmergeOrder);
 
     #[derive(Debug, Eq, PartialEq, Clone)]
     pub struct ClosedInt {
@@ -78,21 +81,15 @@ mod interval {
             ClosedInt::new(low, high)
         }
 
-        pub fn is_before(&self, num: u64) -> bool {
-            num > self.high
-        }
-
-        pub fn is_after(&self, num: u64) -> bool {
-            num < self.low
-        }
-
         pub fn merge(&self, other: &Self) -> Result<ClosedInt, UnmergableInts> {
-            if self.high < other.low || other.low < self.high {
-                Err(UnmergableInts)
+            if self.high + 1 < other.low {
+                Err(UnmergableInts(UnmergeOrder::Before))
+            } else if other.high + 1 < self.low {
+                Err(UnmergableInts(UnmergeOrder::After))
             } else {
                 Ok(ClosedInt::new(
                     std::cmp::min(self.low, other.low),
-                    std::cmp::max(self.low, other.high),
+                    std::cmp::max(self.high, other.high),
                 )
                 .unwrap())
             }
@@ -150,6 +147,16 @@ mod interval {
         }
 
         #[test]
+        fn test_merge() {
+            let a = ClosedInt::new(10, 15).unwrap();
+            let b = ClosedInt::new(20, 25).unwrap();
+            assert_eq!(a.merge(&b), Err(UnmergableInts(UnmergeOrder::Before)));
+            assert_eq!(b.merge(&a), Err(UnmergableInts(UnmergeOrder::After)));
+            let c = ClosedInt::new(24, 30).unwrap();
+            assert_eq!(b.merge(&c), Ok(ClosedInt::new(20, 30).unwrap()));
+        }
+
+        #[test]
         fn test_ord() {
             let closed0 = ClosedInt::new(10, 15).unwrap();
             let closed0_copy = ClosedInt::new(10, 15).unwrap();
@@ -173,29 +180,29 @@ fn bruteforce_interval(val: u64, intervals: &[ClosedInt]) -> bool {
     false
 }
 
-fn pivot_intervals(intervals: &mut [ClosedInt]) -> &mut [ClosedInt] {
-    if intervals.len() == 1 {
-        return intervals;
-    }
+fn merge_intervals(buf: &mut [ClosedInt]) -> &[ClosedInt] {
+    buf.sort();
+    // a b c d e
+    // ab x c d e
+    let mut dst = 0;
+    let mut src = 1;
+    while src < buf.len() {
+        info!("{:?}, {:?}", buf[dst], buf[src]);
 
-    let mut before = 0;
-    let mut after = intervals.len() - 2;
-
-    let mid = intervals.len() / 2;
-    intervals.swap(mid, intervals.len() - 1);
-
-    while before < after {
-        if intervals[front].is_before(pivot) {
-            continue;
-            front += 1;
-        } else if intervals[front].is_after(pivot) {
-            intervals.swap(front, after);
-            front += 1;
-            after -= 1;
+        if let Ok(merged) = buf[dst].merge(&buf[src]) {
+            buf[dst] = merged;
+            info!("merged {:?}", buf[dst]);
         } else {
-            front += 1;
+            dst += 1;
+            if src != dst {
+                buf[dst] = buf[src].clone();
+                dst += 1;
+            }
+            info!("unmerged");
         }
+        src += 1;
     }
+    &buf[..dst + 1]
 }
 
 fn read_lines<P>(filename: P) -> io::Result<io::Split<io::BufReader<File>>>
@@ -280,13 +287,21 @@ fn main() -> Result<(), Box<dyn Error>> {
             return Err(From::from("Need a file argument!"));
         }
     };
-    let fdb = FoodbProblem::new_from_file(file);
+    let mut fdb = FoodbProblem::new_from_file(file);
+    println!("pre-merge len {}", fdb.intervals.len());
+    let copy = fdb.intervals.clone();
+    let merged = merge_intervals(&mut fdb.intervals);
+    println!("post-merge len {}", merged.len());
     let mut res = 0;
     for c in fdb.to_check {
-        res += bruteforce_interval(c, &fdb.intervals) as u64;
+        if bruteforce_interval(c, &merged) != bruteforce_interval(c, &copy) {
+            panic!("{}", c);
+        }
+        // 559173529423903
+        res += bruteforce_interval(c, &merged) as u64;
     }
-    println!("{}", res);
 
+    println!("{}", res);
     Ok(())
 }
 mod tests {
@@ -310,10 +325,19 @@ mod tests {
 11
 17
 32";
-        let fdb = FoodbProblem::new_from_lines(lines.split(|&v| v == b'\n'));
+        let mut fdb = FoodbProblem::new_from_lines(lines.split(|&v| v == b'\n'));
         let mut res = 0;
-        for c in fdb.to_check {
-            res += bruteforce_interval(c, &fdb.intervals) as u64;
+        for c in &fdb.to_check {
+            res += bruteforce_interval(*c, &fdb.intervals) as u64;
+        }
+        assert_eq!(res, 3);
+        let merged = merge_intervals(&mut fdb.intervals);
+        assert_eq!(merged.len(), 2);
+        assert_eq!(merged[0], ClosedInt::new(3, 5).unwrap());
+        assert_eq!(merged[1], ClosedInt::new(10, 20).unwrap());
+        let mut res = 0;
+        for c in &fdb.to_check {
+            res += bruteforce_interval(*c, &merged) as u64;
         }
         assert_eq!(res, 3);
     }
