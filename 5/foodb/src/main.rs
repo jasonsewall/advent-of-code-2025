@@ -95,6 +95,9 @@ mod interval {
             }
         }
 
+        pub fn length(&self) -> u64 {
+            self.high - self.low + 1
+        }
         pub fn contains(&self, num: u64) -> bool {
             num >= self.low && num <= self.high
         }
@@ -196,7 +199,6 @@ fn merge_intervals(buf: &mut [ClosedInt]) -> &[ClosedInt] {
             dst += 1;
             if src != dst {
                 buf[dst] = buf[src].clone();
-                dst += 1;
             }
             info!("unmerged");
         }
@@ -297,11 +299,16 @@ fn main() -> Result<(), Box<dyn Error>> {
         if bruteforce_interval(c, &merged) != bruteforce_interval(c, &copy) {
             panic!("{}", c);
         }
-        // 559173529423903
         res += bruteforce_interval(c, &merged) as u64;
     }
 
-    println!("{}", res);
+    println!("sum {}", res);
+
+    let mut range_count = 0;
+    for i in merged {
+        range_count += i.length();
+    }
+    println!("Range count {}", range_count);
     Ok(())
 }
 mod tests {
